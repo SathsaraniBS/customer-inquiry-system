@@ -24,11 +24,14 @@ app.get("/api/health", async (req, res) => {
 
 app.use("/api/auth", authRoutes);
 
-const port = process.env.PORT || 4000;
-app.listen(port, () => {
-  console.log(`API running on http://localhost:${port}`);
-});
+export default app;
 
+if (process.env.NODE_ENV !== "test") {
+  const port = process.env.PORT || 4000;
+  app.listen(port, () => {
+    console.log(`API running on http://localhost:${port}`);
+  });
+}
 app.use("/api/inquiries", inquiryRoutes);
 
 // Predictable JSON errors (bad JSON body, unexpected failures)
