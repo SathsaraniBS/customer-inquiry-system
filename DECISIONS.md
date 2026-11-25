@@ -25,5 +25,5 @@ Pagination, login rate limiting, CSRF protection, assigning inquiries between st
 ## Use of AI
 I used Claude to help plan the architecture, draft starter code and debug setup problems (PostgreSQL port, npm dependency conflicts, Vitest JSX config). I ran and tested everything and can explain it.
 - Accepted: version-based optimistic locking for the stale-tab case.
-- Changed: (write one real change you made)
-- Rejected: (write one real thing you declined, e.g. the AGENTS.md option in create-next-app)
+- Changed: Adapted the suggested setup to my machine. PostgreSQL 18 ran on port 5433 instead of 5432, so I found the port with netstat and set it in `.env`. I also rewrote PowerShell-incompatible commands (for example `Remove-Item` instead of `rmdir /s /q`), fixed the Vitest JSX configuration, and switched the default dark theme to a light theme so text was readable.
+- Rejected: I declined the AGENTS.md option in create-next-app, and I did not run `npm audit fix --force` because it could break dependency versions. When npm reported a peer dependency conflict I installed a compatible `@testing-library/jest-dom@6` instead of forcing the install.
