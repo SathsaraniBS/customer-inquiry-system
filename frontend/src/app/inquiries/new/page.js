@@ -1,11 +1,49 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 
 const EMPTY = { customer_name: "", contact: "", subject: "", description: "" };
+const DRAFT_KEY = "inquiry-draft";
+
+function contactKind(value) {
+  const v = value.trim();
+  if (!v) return "";
+  if (/^\S+@\S+\.\S+$/.test(v)) return "Email address";
+  if (/^[+\d][\d\s()-]{5,}$/.test(v)) return "Phone number";
+  return "";
+}
+
+function Field({ name, label, value, onChange, errors, multiline, hint, autoFocus }) {
+  const Tag = multiline ? "textarea" : "input";
+  const errs = errors[name];
+  return (
+    <div>
+      <label htmlFor={`f-${name}`} className="block text-sm font-medium text-gray-700">
+        {label}
+      </label>
+      <Tag
+        id={`f-${name}`}
+        value={value}
+        onChange={(e) => onChange(name, e.target.value)}
+        rows={multiline ? 5 : undefined}
+        autoFocus={autoFocus}
+        aria-invalid={errs ? "true" : "false"}
+        aria-describedby={errs ? `e-${name}` : undefined}
+        className={`mt-1 w-full border rounded-lg px-3 py-2 text-gray-900 ${errs ? "border-red-500 bg-red-50/40" : "border-gray-300"}`}
+      />
+      {errs ? (
+        <p id={`e-${name}`} className="text-red-700 text-xs mt-1">
+          {errs[0]}
+        </p>
+      ) : (
+        hint && <p className="text-gray-500 text-xs mt-1">{hint}</p>
+      )}
+    </div>
+  );
+}
 
 export default function NewInquiryPage() {
   const router = useRouter();
@@ -14,10 +52,46 @@ export default function NewInquiryPage() {
   const [formError, setFormError] = useState("");
   const [duplicateId, setDuplicateId] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [restored, setRestored] = useState(false);
+
+  // Restore an unsent draft (survives refresh and failed saves)
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(DRAFT_KEY);
+      if (raw) {
+        const draft = JSON.parse(raw);
+        if (Object.values(draft).some((v) => v)) {
+          setForm({ ...EMPTY, ...draft });
+          setRestored(true);
+        }
+      }
+    } catch {
+      /* storage unavailable: start with an empty form */
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(DRAFT_KEY, JSON.stringify(form));
+    } catch {
+      /* ignore */
+    }
+  }, [form]);
 
   function update(field, value) {
     setForm((f) => ({ ...f, [field]: value }));
     setFieldErrors((e) => ({ ...e, [field]: undefined }));
+  }
+
+  function discardDraft() {
+    setForm(EMPTY);
+    setFieldErrors({});
+    setRestored(false);
+    try {
+      sessionStorage.removeItem(DRAFT_KEY);
+    } catch {
+      /* ignore */
+    }
   }
 
   // Quick client-side check so the user gets instant guidance.
@@ -31,6 +105,11 @@ export default function NewInquiryPage() {
     return errors;
   }
 
+  function focusFirst(errors) {
+    const first = ["customer_name", "contact", "subject", "description"].find((k) => errors[k]);
+    if (first) document.getElementById(`f-${first}`)?.focus();
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
     setFormError("");
@@ -39,12 +118,18 @@ export default function NewInquiryPage() {
     const errors = validate();
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
+      setTimeout(() => focusFirst(errors), 0);
       return;
     }
 
     setSaving(true);
     try {
       const data = await api("/inquiries", { method: "POST", body: form });
+      try {
+        sessionStorage.removeItem(DRAFT_KEY);
+      } catch {
+        /* ignore */
+      }
       router.push(`/inquiries/${data.inquiry.id}`);
     } catch (err) {
       if (err.status === 401) {
@@ -53,49 +138,43 @@ export default function NewInquiryPage() {
       }
       if (err.status === 400 && err.body?.fields) {
         setFieldErrors(err.body.fields);
+        setTimeout(() => focusFirst(err.body.fields), 0);
       } else if (err.status === 409 && err.body?.existingId) {
         setDuplicateId(err.body.existingId);
         setFormError(err.message);
       } else {
-        setFormError(err.message);
+        setFormError(`${err.message} Your details are still here, so you can try again.`);
       }
     } finally {
       setSaving(false);
     }
   }
 
-  function Field({ name, label, multiline }) {
-    const Tag = multiline ? "textarea" : "input";
-    const errs = fieldErrors[name];
-    return (
-      <label className="block text-sm text-gray-700">
-        {label}
-        <Tag
-          value={form[name]}
-          onChange={(e) => update(name, e.target.value)}
-          rows={multiline ? 4 : undefined}
-          aria-invalid={errs ? "true" : "false"}
-          className={`mt-1 w-full border rounded px-3 py-2 text-gray-900 ${errs ? "border-red-500" : ""}`}
-        />
-        {errs && <span className="text-red-600 text-xs">{errs[0]}</span>}
-      </label>
-    );
-  }
+  const kind = contactKind(form.contact);
 
   return (
-    <main className="max-w-xl mx-auto p-6">
-      <Link href="/inquiries" className="text-sm underline text-gray-600">
-        Back to inquiries
+    <main className="max-w-xl mx-auto p-4 sm:p-6">
+      <Link href="/inquiries" className="text-sm text-teal-800 hover:underline">
+        ← Back to inquiries
       </Link>
       <h1 className="text-2xl font-semibold text-gray-900 my-4">New inquiry</h1>
 
+      {restored && (
+        <div role="status" className="bg-sky-50 border border-sky-100 text-sky-900 p-3 rounded-lg mb-4 text-sm flex items-center justify-between gap-3">
+          <span>We restored your unsent draft.</span>
+          <button type="button" onClick={discardDraft} className="underline font-medium">
+            Discard draft
+          </button>
+        </div>
+      )}
+
       {formError && (
-        <div role="alert" className="bg-red-50 text-red-700 p-3 rounded mb-4 text-sm">
+        <div role="alert" className="bg-red-50 border border-red-100 text-red-800 p-3 rounded-lg mb-4 text-sm">
           {formError}
           {duplicateId && (
             <>
               {" "}
-              <Link href={`/inquiries/${duplicateId}`} className="underline">
+              <Link href={`/inquiries/${duplicateId}`} className="underline font-medium">
                 View the existing inquiry
               </Link>
             </>
@@ -103,15 +182,30 @@ export default function NewInquiryPage() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-4 bg-white p-6 rounded-lg shadow" noValidate>
-        {Field({ name: "customer_name", label: "Customer name" })}
-        {Field({ name: "contact", label: "Contact (email or phone)" })}
-        {Field({ name: "subject", label: "Subject" })}
-        {Field({ name: "description", label: "Description", multiline: true })}
+      <form onSubmit={handleSubmit} className="space-y-4 bg-white p-5 sm:p-6 rounded-xl border border-gray-200" noValidate>
+        <Field name="customer_name" label="Customer name" value={form.customer_name} onChange={update} errors={fieldErrors} autoFocus />
+        <Field
+          name="contact"
+          label="Contact (email or phone)"
+          value={form.contact}
+          onChange={update}
+          errors={fieldErrors}
+          hint={kind ? `${kind} detected` : "How staff can reach the customer"}
+        />
+        <Field name="subject" label="Subject" value={form.subject} onChange={update} errors={fieldErrors} hint="A few words, e.g. Order delay" />
+        <Field
+          name="description"
+          label="Description"
+          value={form.description}
+          onChange={update}
+          errors={fieldErrors}
+          multiline
+          hint={`${form.description.length} characters`}
+        />
         <button
           type="submit"
           disabled={saving}
-          className="w-full bg-black text-white py-2 rounded disabled:opacity-50"
+          className="w-full bg-teal-700 hover:bg-teal-800 text-white font-medium py-2.5 rounded-lg disabled:opacity-60 transition-colors"
         >
           {saving ? "Saving..." : "Save inquiry"}
         </button>
